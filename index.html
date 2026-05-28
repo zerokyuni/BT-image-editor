@@ -92,16 +92,20 @@
                     <label class="block text-xs font-bold text-gray-700 mb-2">시작 숫자</label>
                     <div class="flex items-center gap-2 mb-3">
                         <input type="number" id="number-start-val" value="1" class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" />
-                        <button id="btn-set-number" class="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-xs font-semibold shrink-0 transition">적용</button>
+                    </div>
+                    
+                    <label class="block text-xs font-bold text-gray-700 mb-2">증감 폭 (간격)</label>
+                    <div class="flex items-center gap-2 mb-3">
+                        <input type="number" id="number-step-val" value="1" min="1" class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" />
                     </div>
                     
                     <label class="block text-xs font-bold text-gray-700 mb-2">클릭 시 동작</label>
                     <div class="flex flex-col gap-1 text-sm">
                         <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="num-mode" value="up" checked class="accent-blue-600"> 1씩 증가
+                            <input type="radio" name="num-mode" value="up" checked class="accent-blue-600"> 증가 (+)
                         </label>
                         <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="num-mode" value="down" class="accent-blue-600"> 1씩 감소
+                            <input type="radio" name="num-mode" value="down" class="accent-blue-600"> 감소 (-)
                         </label>
                         <label class="flex items-center gap-2 cursor-pointer">
                             <input type="radio" name="num-mode" value="stay" class="accent-blue-600"> 고정 (안 변함)
@@ -208,6 +212,7 @@
             
             // Number Tool State
             currentNumber: 1,
+            numberStep: 1,
             numberMode: 'up' // 'up', 'down', 'stay'
         };
 
@@ -228,7 +233,7 @@
             polygonTip: document.getElementById('polygon-tip'),
             numberSettings: document.getElementById('number-settings'),
             inputNumberStart: document.getElementById('number-start-val'),
-            btnSetNumber: document.getElementById('btn-set-number'),
+            inputNumberStep: document.getElementById('number-step-val'),
             radioNumModes: document.querySelectorAll('input[name="num-mode"]'),
             
             colorButtonsContainer: document.getElementById('color-buttons'),
@@ -270,10 +275,18 @@
             });
             
             // Number Tool Settings
-            elements.btnSetNumber.onclick = () => {
-                const val = parseInt(elements.inputNumberStart.value);
+            elements.inputNumberStart.oninput = (e) => {
+                // 입력하는 즉시 state에 반영
+                const val = parseInt(e.target.value);
                 if (!isNaN(val)) {
                     state.currentNumber = val;
+                }
+            };
+            
+            elements.inputNumberStep.oninput = (e) => {
+                const val = parseInt(e.target.value);
+                if (!isNaN(val) && val > 0) {
+                    state.numberStep = val;
                 }
             };
             
@@ -373,9 +386,11 @@
             elements.polygonTip.style.display = state.tool === 'polygon' ? 'block' : 'none';
             elements.numberSettings.style.display = state.tool === 'number' ? 'block' : 'none';
             
-            // Sync number input with state
+            // Sync number input with state (입력 중이 아닐 때만 동기화하여 타이핑 방해 방지)
             if(state.tool === 'number' && parseInt(elements.inputNumberStart.value) !== state.currentNumber) {
-                 elements.inputNumberStart.value = state.currentNumber;
+                 if (document.activeElement !== elements.inputNumberStart) {
+                     elements.inputNumberStart.value = state.currentNumber;
+                 }
             }
 
             // Update colors
@@ -498,27 +513,60 @@
         }
         
         function drawNumber(ctx, x, y, number, color, width) {
-            // Draw a circle background for the number
-            const radius = Math.max(20, width * 1.5);
+            // 세 자리마다 콤마 찍기
+            const displayStr = Number(number).toLocaleString('ko-KR');
+            const charLength = displayStr.length;
+
+            const baseRadius = Math.max(20, width * 1.5);
+            const fontSize = baseRadius * 1.2;
             
-            ctx.beginPath();
-            ctx.arc(x, y, radius, 0, 2 * Math.PI, false);
+            ctx.font = `bold ${fontSize}px sans-serif`;
+            const textWidth = ctx.measureText(displayStr).width;
+
             ctx.fillStyle = color;
-            ctx.fill();
             ctx.lineWidth = 3;
             ctx.strokeStyle = 'white';
-            ctx.stroke();
+
+            if (charLength <= 2) {
+                // 1~2자리: 원형 배경
+                ctx.beginPath();
+                ctx.arc(x, y, baseRadius, 0, 2 * Math.PI, false);
+                ctx.fill();
+                ctx.stroke();
+            } else {
+                // 3자리 이상 (마이너스 기호 포함): 둥근 직사각형 배경
+                const paddingX = fontSize * 0.6;
+                const paddingY = fontSize * 0.4;
+                const rectWidth = textWidth + paddingX * 2;
+                const rectHeight = fontSize + paddingY * 2;
+                const borderRadius = baseRadius * 0.6; 
+                
+                const rectX = x - rectWidth / 2;
+                const rectY = y - rectHeight / 2;
+                
+                ctx.beginPath();
+                ctx.moveTo(rectX + borderRadius, rectY);
+                ctx.lineTo(rectX + rectWidth - borderRadius, rectY);
+                ctx.quadraticCurveTo(rectX + rectWidth, rectY, rectX + rectWidth, rectY + borderRadius);
+                ctx.lineTo(rectX + rectWidth, rectY + rectHeight - borderRadius);
+                ctx.quadraticCurveTo(rectX + rectWidth, rectY + rectHeight, rectX + rectWidth - borderRadius, rectY + rectHeight);
+                ctx.lineTo(rectX + borderRadius, rectY + rectHeight);
+                ctx.quadraticCurveTo(rectX, rectY + rectHeight, rectX, rectY + rectHeight - borderRadius);
+                ctx.lineTo(rectX, rectY + borderRadius);
+                ctx.quadraticCurveTo(rectX, rectY, rectX + borderRadius, rectY);
+                ctx.closePath();
+                
+                ctx.fill();
+                ctx.stroke();
+            }
 
             // Draw the text
             ctx.fillStyle = 'white';
-            // Scale font size based on radius
-            const fontSize = radius * 1.2;
-            ctx.font = `bold ${fontSize}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
             // Adjust vertical alignment slightly for typical sans-serif fonts
-            ctx.fillText(number, x, y + (fontSize * 0.05)); 
+            ctx.fillText(displayStr, x, y + (fontSize * 0.05)); 
         }
 
         function drawShape(ctx, shape) {
@@ -654,8 +702,8 @@
                 state.images[state.currentIndex].shapes.push(newShape);
                 
                 // Update number logic
-                if (state.numberMode === 'up') state.currentNumber++;
-                else if (state.numberMode === 'down') state.currentNumber--;
+                if (state.numberMode === 'up') state.currentNumber += state.numberStep;
+                else if (state.numberMode === 'down') state.currentNumber -= state.numberStep;
                 
                 updateUI(); // Updates the sidebar input to reflect the new number
             } else {
@@ -742,8 +790,8 @@
                 
                 // If we undid a number, revert the counter appropriately
                 if (lastShape && lastShape.type === 'number') {
-                    if (state.numberMode === 'up') state.currentNumber--;
-                    else if (state.numberMode === 'down') state.currentNumber++;
+                    if (state.numberMode === 'up') state.currentNumber -= state.numberStep;
+                    else if (state.numberMode === 'down') state.currentNumber += state.numberStep;
                     updateUI();
                 }
             }
