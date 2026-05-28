@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>출장 사진 편집기</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- JSZip for Zip download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Custom scrollbar for sidebar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Drag Overlay */
+        #drag-overlay {
+            transition: opacity 0.2s ease-in-out, visibility 0.2s;
+        }
+        .drag-active #drag-overlay {
+            opacity: 1;
+            visibility: visible;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white border-b px-6 py-4 flex items-center justify-between shadow-sm z-20 shrink-0">
+        <div>
+            <h1 class="text-xl font-bold text-gray-900">출장 사진 편집기</h1>
+            <p class="text-sm text-gray-500 mt-1">사진에 사업 구역을 쉽고 깔끔하게 표시하세요.</p>
+        </div>
+        <div class="flex gap-3 relative">
+            <label class="cursor-pointer bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-100 transition flex items-center gap-2">
+                <i data-lucide="upload" class="w-5 h-5"></i>
+                사진 불러오기
+                <input type="file" id="file-input-header" accept="image/*" multiple class="hidden" />
+            </label>
+            <button id="btn-download-zip" disabled class="px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition bg-gray-200 text-gray-400 cursor-not-allowed">
+                <i data-lucide="file-archive" class="w-5 h-5"></i>
+                전체 ZIP 저장
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex flex-1 overflow-hidden relative">
+        
+        <!-- Sidebar Tools -->
+        <aside class="w-64 bg-white border-r flex flex-col p-5 overflow-y-auto z-10 shadow-[2px_0_8px_rgba(0,0,0,0.02)] shrink-0">
+            
+            <!-- Tool Selection -->
+            <div class="mb-8">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">그리기 도구</h3>
+                <div class="grid grid-cols-2 gap-2" id="tool-buttons">
+                    <button data-tool="polygon" class="tool-btn flex flex-col items-center justify-center py-3 px-2 rounded-xl transition border-2 bg-blue-50 border-blue-500 text-blue-700 shadow-sm">
+                        <i data-lucide="hexagon" class="mb-1 w-6 h-6"></i>
+                        <span class="text-[11px] font-semibold">다각형 (구역)</span>
+                    </button>
+                    <button data-tool="circle" class="tool-btn flex flex-col items-center justify-center py-3 px-2 rounded-xl transition border-2 bg-white border-gray-100 text-gray-600 hover:bg-gray-50 hover:border-gray-200">
+                        <i data-lucide="circle" class="mb-1 w-6 h-6"></i>
+                        <span class="text-[11px] font-semibold">원 (나무/지점)</span>
+                    </button>
+                    <button data-tool="rect" class="tool-btn flex flex-col items-center justify-center py-3 px-2 rounded-xl transition border-2 bg-white border-gray-100 text-gray-600 hover:bg-gray-50 hover:border-gray-200">
+                        <i data-lucide="square" class="mb-1 w-6 h-6"></i>
+                        <span class="text-[11px] font-semibold">사각형</span>
+                    </button>
+                    <button data-tool="arrow" class="tool-btn flex flex-col items-center justify-center py-3 px-2 rounded-xl transition border-2 bg-white border-gray-100 text-gray-600 hover:bg-gray-50 hover:border-gray-200">
+                        <i data-lucide="arrow-right" class="mb-1 w-6 h-6"></i>
+                        <span class="text-[11px] font-semibold">화살표</span>
+                    </button>
+                    <button data-tool="pen" class="tool-btn flex flex-col items-center justify-center py-3 px-2 rounded-xl transition border-2 bg-white border-gray-100 text-gray-600 hover:bg-gray-50 hover:border-gray-200 col-span-2">
+                        <i data-lucide="pen-tool" class="mb-1 w-6 h-6"></i>
+                        <span class="text-[11px] font-semibold">자유선 (펜)</span>
+                    </button>
+                </div>
+                <div id="polygon-tip" class="text-xs text-blue-600 bg-blue-50 p-2 rounded mt-3 leading-relaxed border border-blue-100 block">
+                    💡 <b>다각형 사용법:</b><br/>클릭하여 점을 찍어 영역을 만드세요. 마지막에 <b>시작점</b>을 클릭하거나 <b>더블클릭</b>하면 도형이 완성됩니다.
+                </div>
+            </div>
+
+            <!-- Style Settings -->
+            <div class="mb-8">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">스타일 설정</h3>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">선 색상</label>
+                    <div class="flex gap-2 flex-wrap" id="color-buttons">
+                        <!-- Colors generated by JS -->
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" id="stroke-width-label">선 굵기: 15px</label>
+                    <input type="range" id="stroke-width" min="1" max="50" value="15" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="mt-auto pt-4 border-t border-gray-100">
+                <div class="flex flex-col gap-2">
+                    <button id="btn-undo" disabled class="flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium">
+                        <i data-lucide="undo-2" class="w-4 h-4"></i> 실행 취소 (Ctrl+Z)
+                    </button>
+                    <button id="btn-clear" disabled class="flex items-center justify-center gap-2 w-full py-2.5 px-4 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition font-medium">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i> 모두 지우기
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Canvas Area -->
+        <main id="main-area" class="flex-1 relative bg-gray-200/50 flex items-center justify-center p-8 overflow-auto">
+            
+            <!-- Drag & Drop Overlay -->
+            <div id="drag-overlay" class="absolute inset-0 bg-blue-500/10 backdrop-blur-[2px] z-50 flex items-center justify-center opacity-0 invisible border-4 border-dashed border-blue-500 m-4 rounded-3xl pointer-events-none">
+                <div class="bg-white px-8 py-6 rounded-2xl shadow-xl text-center">
+                    <i data-lucide="download-cloud" class="w-16 h-16 text-blue-500 mx-auto mb-4"></i>
+                    <h2 class="text-2xl font-bold text-gray-800">여기에 사진을 놓으세요!</h2>
+                    <p class="text-gray-500 mt-2">여러 장의 사진도 한 번에 불러올 수 있습니다.</p>
+                </div>
+            </div>
+
+            <!-- Image Navigation (Hidden initially) -->
+            <div id="image-nav" class="hidden absolute top-6 left-1/2 -translate-x-1/2 z-20 bg-white/90 backdrop-blur-sm shadow-md rounded-full px-5 py-2.5 flex items-center gap-6 border border-gray-200">
+                <button id="btn-prev" class="p-1.5 bg-gray-100 rounded-full hover:bg-blue-50 hover:text-blue-600 disabled:opacity-30 disabled:hover:bg-gray-100 disabled:hover:text-gray-800 transition">
+                    <i data-lucide="chevron-left" class="w-5 h-5"></i>
+                </button>
+                <span class="text-sm font-bold text-gray-700 tracking-wide select-none">
+                    <span id="nav-current">1</span> <span class="text-gray-400 font-normal">/ <span id="nav-total">1</span></span>
+                </span>
+                <button id="btn-next" class="p-1.5 bg-gray-100 rounded-full hover:bg-blue-50 hover:text-blue-600 disabled:opacity-30 disabled:hover:bg-gray-100 disabled:hover:text-gray-800 transition">
+                    <i data-lucide="chevron-right" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="text-center bg-white p-12 rounded-2xl shadow-sm border border-gray-200 max-w-md w-full">
+                <div class="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i data-lucide="image" class="w-8 h-8"></i>
+                </div>
+                <h2 class="text-xl font-bold text-gray-800 mb-2">출장 사진이 없습니다</h2>
+                <p class="text-gray-500 mb-6">위 버튼을 누르거나<br/>여기에 사진 파일들을 <b>드래그 앤 드롭</b>하여 시작하세요.</p>
+                <label class="cursor-pointer bg-blue-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-blue-700 transition inline-block shadow-sm">
+                    사진들 선택하기
+                    <input type="file" id="file-input-empty" accept="image/*" multiple class="hidden" />
+                </label>
+            </div>
+
+            <!-- Canvas Container -->
+            <div id="canvas-container" class="hidden relative shadow-xl border border-gray-200 bg-white" style="max-width: 100%; max-height: 100%; display: none;">
+                <canvas id="editor-canvas" class="w-full h-full touch-none cursor-crosshair" style="object-fit: contain;"></canvas>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Application State
+        let state = {
+            images: [], // { name, img: ImageObject, shapes: [] }
+            currentIndex: 0,
+            tool: 'polygon',
+            color: '#ef4444',
+            width: 15,
+            
+            // Drawing state
+            isDrawing: false,
+            startPos: { x: 0, y: 0 },
+            currentPos: { x: 0, y: 0 },
+            currentPath: [],
+            polygonPoints: []
+        };
+
+        const colors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#111827'];
+
+        // DOM Elements
+        const elements = {
+            mainArea: document.getElementById('main-area'),
+            fileInputs: [document.getElementById('file-input-header'), document.getElementById('file-input-empty')],
+            btnDownloadZip: document.getElementById('btn-download-zip'),
+            emptyState: document.getElementById('empty-state'),
+            canvasContainer: document.getElementById('canvas-container'),
+            canvas: document.getElementById('editor-canvas'),
+            ctx: document.getElementById('editor-canvas').getContext('2d'),
+            
+            // Sidebar
+            toolButtons: document.querySelectorAll('.tool-btn'),
+            polygonTip: document.getElementById('polygon-tip'),
+            colorButtonsContainer: document.getElementById('color-buttons'),
+            strokeWidthInput: document.getElementById('stroke-width'),
+            strokeWidthLabel: document.getElementById('stroke-width-label'),
+            btnUndo: document.getElementById('btn-undo'),
+            btnClear: document.getElementById('btn-clear'),
+            
+            // Nav
+            imageNav: document.getElementById('image-nav'),
+            btnPrev: document.getElementById('btn-prev'),
+            btnNext: document.getElementById('btn-next'),
+            navCurrent: document.getElementById('nav-current'),
+            navTotal: document.getElementById('nav-total')
+        };
+
+        // --- Initialize UI ---
+        function initUI() {
+            // Create color buttons
+            colors.forEach(c => {
+                const btn = document.createElement('button');
+                btn.className = `w-8 h-8 rounded-full border-2 transition-transform color-btn ${c === state.color ? 'scale-110 border-gray-400 shadow-md' : 'border-transparent hover:scale-110'}`;
+                btn.style.backgroundColor = c;
+                btn.onclick = () => {
+                    state.color = c;
+                    updateUI();
+                };
+                elements.colorButtonsContainer.appendChild(btn);
+            });
+
+            // Tool buttons
+            elements.toolButtons.forEach(btn => {
+                btn.onclick = () => {
+                    state.tool = btn.dataset.tool;
+                    state.polygonPoints = []; // Reset polygon on tool change
+                    updateUI();
+                    drawCanvas();
+                };
+            });
+
+            // Stroke width
+            elements.strokeWidthInput.oninput = (e) => {
+                state.width = parseInt(e.target.value);
+                elements.strokeWidthLabel.textContent = `선 굵기: ${state.width}px`;
+                drawCanvas();
+            };
+
+            // Actions
+            elements.btnUndo.onclick = handleUndo;
+            elements.btnClear.onclick = handleClear;
+            elements.btnDownloadZip.onclick = handleDownloadZip;
+
+            // Nav
+            elements.btnPrev.onclick = () => changeImage(state.currentIndex - 1);
+            elements.btnNext.onclick = () => changeImage(state.currentIndex + 1);
+
+            // File Upload via inputs
+            elements.fileInputs.forEach(input => {
+                input.onchange = (e) => handleFiles(e.target.files);
+            });
+
+            // Window resize
+            window.addEventListener('resize', () => {
+                resizeCanvas();
+            });
+
+            // Keyboard
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    state.polygonPoints = [];
+                    drawCanvas();
+                } else if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                    handleUndo();
+                }
+            });
+        }
+
+        // --- Drag and Drop Logic ---
+        function initDragAndDrop() {
+            const dragArea = document.body; // Allow dragging anywhere over the window
+
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dragArea.addEventListener(eventName, preventDefaults, false);
+            });
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            let dragCounter = 0;
+
+            dragArea.addEventListener('dragenter', (e) => {
+                dragCounter++;
+                if (e.dataTransfer.types && e.dataTransfer.types.includes("Files")) {
+                    elements.mainArea.classList.add('drag-active');
+                }
+            }, false);
+
+            dragArea.addEventListener('dragleave', (e) => {
+                dragCounter--;
+                if (dragCounter === 0) {
+                    elements.mainArea.classList.remove('drag-active');
+                }
+            }, false);
+
+            dragArea.addEventListener('drop', (e) => {
+                dragCounter = 0;
+                elements.mainArea.classList.remove('drag-active');
+                let dt = e.dataTransfer;
+                let files = dt.files;
+                handleFiles(files);
+            }, false);
+        }
+
+        // --- State Updates ---
+        function updateUI() {
+            // Update tools
+            elements.toolButtons.forEach(btn => {
+                const isActive = btn.dataset.tool === state.tool;
+                if (isActive) {
+                    btn.className = "tool-btn flex flex-col items-center justify-center py-3 px-2 rounded-xl transition border-2 bg-blue-50 border-blue-500 text-blue-700 shadow-sm";
+                } else {
+                    btn.className = "tool-btn flex flex-col items-center justify-center py-3 px-2 rounded-xl transition border-2 bg-white border-gray-100 text-gray-600 hover:bg-gray-50 hover:border-gray-200";
+                }
+            });
+
+            elements.polygonTip.style.display = state.tool === 'polygon' ? 'block' : 'none';
+
+            // Update colors
+            const colorBtns = elements.colorButtonsContainer.querySelectorAll('button');
+            colorBtns.forEach((btn, idx) => {
+                const c = colors[idx];
+                if (c === state.color) {
+                    btn.className = "w-8 h-8 rounded-full border-2 transition-transform color-btn scale-110 border-gray-400 shadow-md";
+                } else {
+                    btn.className = "w-8 h-8 rounded-full border-2 transition-transform color-btn border-transparent hover:scale-110";
+                }
+            });
+
+            // Update main views
+            const hasImages = state.images.length > 0;
+            elements.emptyState.style.display = hasImages ? 'none' : 'block';
+            elements.canvasContainer.style.display = hasImages ? 'flex' : 'none';
+            
+            // Update Download Button
+            if (hasImages) {
+                elements.btnDownloadZip.disabled = false;
+                elements.btnDownloadZip.className = "px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition bg-blue-600 text-white hover:bg-blue-700 shadow-sm";
+            } else {
+                elements.btnDownloadZip.disabled = true;
+                elements.btnDownloadZip.className = "px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition bg-gray-200 text-gray-400 cursor-not-allowed";
+            }
+
+            // Update Nav
+            if (state.images.length > 1) {
+                elements.imageNav.classList.remove('hidden');
+                elements.navCurrent.textContent = state.currentIndex + 1;
+                elements.navTotal.textContent = state.images.length;
+                
+                elements.btnPrev.disabled = state.currentIndex === 0;
+                elements.btnNext.disabled = state.currentIndex === state.images.length - 1;
+            } else {
+                elements.imageNav.classList.add('hidden');
+            }
+
+            // Update Action buttons (Undo/Clear)
+            const currentShapes = hasImages ? state.images[state.currentIndex].shapes : [];
+            const canUndo = currentShapes.length > 0 || state.polygonPoints.length > 0;
+            elements.btnUndo.disabled = !canUndo;
+            elements.btnClear.disabled = currentShapes.length === 0;
+        }
+
+        // --- File Handling ---
+        function handleFiles(files) {
+            const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+            if (imageFiles.length === 0) return;
+
+            let loadedCount = 0;
+            const newImages = [];
+
+            imageFiles.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        newImages[index] = { name: file.name, img: img, shapes: [] };
+                        loadedCount++;
+                        if (loadedCount === imageFiles.length) {
+                            // Append new images
+                            state.images = [...state.images, ...newImages.filter(Boolean)];
+                            state.polygonPoints = [];
+                            
+                            // If it's the first upload, set index to the start of new batch
+                            if (state.images.length === imageFiles.length) {
+                                changeImage(0);
+                            } else {
+                                updateUI();
+                                drawCanvas();
+                            }
+                        }
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+            
+            // Reset inputs
+            elements.fileInputs.forEach(i => i.value = '');
+        }
+
+        function changeImage(index) {
+            if (index < 0 || index >= state.images.length) return;
+            state.currentIndex = index;
+            state.polygonPoints = [];
+            resizeCanvas(); // will call drawCanvas
+            updateUI();
+        }
+
+        // --- Canvas Drawing Logic ---
+        function resizeCanvas() {
+            if (state.images.length === 0) return;
+            const currentImg = state.images[state.currentIndex].img;
+            
+            // Set actual canvas size to image natural resolution
+            elements.canvas.width = currentImg.naturalWidth;
+            elements.canvas.height = currentImg.naturalHeight;
+            
+            // Set CSS aspect ratio
+            elements.canvasContainer.style.aspectRatio = `${currentImg.naturalWidth} / ${currentImg.naturalHeight}`;
+            
+            drawCanvas();
+        }
+
+        function drawArrow(ctx, startX, startY, endX, endY) {
+            const headlen = Math.max(30, ctx.lineWidth * 3); // 선 굵기에 비례하여 화살표 머리 크기 대폭 조절
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const angle = Math.atan2(dy, dx);
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.lineTo(endX - headlen * Math.cos(angle - Math.PI / 6), endY - headlen * Math.sin(angle - Math.PI / 6));
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(endX - headlen * Math.cos(angle + Math.PI / 6), endY - headlen * Math.sin(angle + Math.PI / 6));
+            ctx.stroke();
+        }
+
+        function drawShape(ctx, shape) {
+            ctx.strokeStyle = shape.color;
+            ctx.lineWidth = shape.width;
+            ctx.beginPath();
+            
+            if (shape.type === 'pen' || shape.type === 'polygon') {
+                ctx.moveTo(shape.points[0].x, shape.points[0].y);
+                shape.points.forEach(p => ctx.lineTo(p.x, p.y));
+                if (shape.type === 'polygon') ctx.closePath();
+            } else if (shape.type === 'rect') {
+                ctx.rect(shape.start.x, shape.start.y, shape.end.x - shape.start.x, shape.end.y - shape.start.y);
+            } else if (shape.type === 'circle') {
+                const radius = Math.hypot(shape.end.x - shape.start.x, shape.end.y - shape.start.y);
+                ctx.arc(shape.start.x, shape.start.y, radius, 0, Math.PI * 2);
+            } else if (shape.type === 'arrow') {
+                drawArrow(ctx, shape.start.x, shape.start.y, shape.end.x, shape.end.y);
+            }
+            ctx.stroke();
+        }
+
+        function drawCanvas() {
+            if (state.images.length === 0) return;
+            const currentData = state.images[state.currentIndex];
+            const ctx = elements.ctx;
+            const canvas = elements.canvas;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(currentData.img, 0, 0, canvas.width, canvas.height);
+
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            // Draw saved shapes
+            currentData.shapes.forEach(shape => drawShape(ctx, shape));
+
+            // Draw active shape preview
+            ctx.strokeStyle = state.color;
+            ctx.lineWidth = state.width;
+
+            if (state.tool === 'polygon' && state.polygonPoints.length > 0) {
+                ctx.beginPath();
+                ctx.moveTo(state.polygonPoints[0].x, state.polygonPoints[0].y);
+                state.polygonPoints.forEach(p => ctx.lineTo(p.x, p.y));
+                ctx.lineTo(state.currentPos.x, state.currentPos.y);
+                ctx.stroke();
+
+                // Draw start point indicator
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(state.polygonPoints[0].x, state.polygonPoints[0].y, state.width * 1.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            } else if (state.isDrawing) {
+                if (state.tool === 'rect') {
+                    ctx.strokeRect(state.startPos.x, state.startPos.y, state.currentPos.x - state.startPos.x, state.currentPos.y - state.startPos.y);
+                } else if (state.tool === 'circle') {
+                    const radius = Math.hypot(state.currentPos.x - state.startPos.x, state.currentPos.y - state.startPos.y);
+                    ctx.beginPath();
+                    ctx.arc(state.startPos.x, state.startPos.y, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                } else if (state.tool === 'arrow') {
+                    drawArrow(ctx, state.startPos.x, state.startPos.y, state.currentPos.x, state.currentPos.y);
+                } else if (state.tool === 'pen' && state.currentPath.length > 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(state.currentPath[0].x, state.currentPath[0].y);
+                    state.currentPath.forEach(p => ctx.lineTo(p.x, p.y));
+                    ctx.stroke();
+                }
+            }
+            
+            // We call updateUI to ensure Action buttons (Undo/Clear) state is accurate
+            // But to avoid infinite loops, just update button states manually here
+            const canUndo = currentData.shapes.length > 0 || state.polygonPoints.length > 0;
+            elements.btnUndo.disabled = !canUndo;
+            elements.btnClear.disabled = currentData.shapes.length === 0;
+        }
+
+        // --- Canvas Events ---
+        function getMousePos(e) {
+            const rect = elements.canvas.getBoundingClientRect();
+            const scaleX = elements.canvas.width / rect.width;
+            const scaleY = elements.canvas.height / rect.height;
+
+            let clientX, clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+
+            return {
+                x: (clientX - rect.left) * scaleX,
+                y: (clientY - rect.top) * scaleY
+            };
+        }
+
+        elements.canvas.addEventListener('pointerdown', (e) => {
+            if (state.images.length === 0) return;
+            elements.canvas.setPointerCapture(e.pointerId);
+            
+            const pos = getMousePos(e);
+
+            if (state.tool === 'polygon') {
+                if (state.polygonPoints.length > 0) {
+                    const startPoint = state.polygonPoints[0];
+                    const dist = Math.hypot(startPoint.x - pos.x, startPoint.y - pos.y);
+                    const threshold = 20 * (elements.canvas.width / elements.canvas.getBoundingClientRect().width); 
+                    
+                    if (dist < threshold) {
+                        closePolygon();
+                        return;
+                    }
+                }
+                state.polygonPoints.push(pos);
+                state.currentPos = pos;
+            } else {
+                state.isDrawing = true;
+                state.startPos = pos;
+                state.currentPos = pos;
+                if (state.tool === 'pen') {
+                    state.currentPath = [pos];
+                }
+            }
+            drawCanvas();
+        });
+
+        elements.canvas.addEventListener('pointermove', (e) => {
+            if (state.images.length === 0) return;
+            const pos = getMousePos(e);
+            
+            if (state.tool === 'polygon' && state.polygonPoints.length > 0) {
+                state.currentPos = pos;
+                drawCanvas();
+            } else if (state.isDrawing) {
+                state.currentPos = pos;
+                if (state.tool === 'pen') {
+                    state.currentPath.push(pos);
+                }
+                drawCanvas();
+            }
+        });
+
+        elements.canvas.addEventListener('pointerup', (e) => {
+            if (state.images.length === 0 || !state.isDrawing) return;
+            elements.canvas.releasePointerCapture(e.pointerId);
+            
+            state.isDrawing = false;
+            let newShape = null;
+
+            if (state.tool === 'pen' && state.currentPath.length > 1) {
+                newShape = { type: 'pen', points: state.currentPath, color: state.color, width: state.width };
+            } else if (['rect', 'circle', 'arrow'].includes(state.tool)) {
+                const dist = Math.hypot(state.startPos.x - state.currentPos.x, state.startPos.y - state.currentPos.y);
+                if (dist > 5) { // Prevent tiny shapes
+                    newShape = { 
+                        type: state.tool, 
+                        start: state.startPos, 
+                        end: state.currentPos, 
+                        color: state.color, 
+                        width: state.width 
+                    };
+                }
+            }
+
+            if (newShape) {
+                state.images[state.currentIndex].shapes.push(newShape);
+            }
+            
+            state.currentPath = [];
+            drawCanvas();
+        });
+
+        elements.canvas.addEventListener('dblclick', (e) => {
+            if (state.tool === 'polygon') closePolygon();
+        });
+
+        function closePolygon() {
+            if (state.polygonPoints.length > 2) {
+                state.images[state.currentIndex].shapes.push({ 
+                    type: 'polygon', 
+                    points: [...state.polygonPoints], 
+                    color: state.color, 
+                    width: state.width 
+                });
+            }
+            state.polygonPoints = [];
+            drawCanvas();
+        }
+
+        // --- Actions Logic ---
+        function handleUndo() {
+            if (state.images.length === 0) return;
+            if (state.polygonPoints.length > 0) {
+                state.polygonPoints = []; // First cancel active polygon
+            } else {
+                state.images[state.currentIndex].shapes.pop(); // Then undo last shape
+            }
+            drawCanvas();
+        }
+
+        function handleClear() {
+            if (state.images.length === 0) return;
+            state.images[state.currentIndex].shapes = [];
+            state.polygonPoints = [];
+            drawCanvas();
+        }
+
+        async function handleDownloadZip() {
+            if (state.images.length === 0) return;
+            
+            // Show loading state
+            const originalBtnText = elements.btnDownloadZip.innerHTML;
+            elements.btnDownloadZip.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> 압축 중...';
+            lucide.createIcons();
+            elements.btnDownloadZip.disabled = true;
+
+            try {
+                const zip = new JSZip();
+                const offCanvas = document.createElement('canvas');
+                const offCtx = offCanvas.getContext('2d');
+
+                state.images.forEach((imgData, index) => {
+                    if (!imgData.img) return;
+                    offCanvas.width = imgData.img.naturalWidth;
+                    offCanvas.height = imgData.img.naturalHeight;
+                    offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+                    offCtx.drawImage(imgData.img, 0, 0);
+
+                    offCtx.lineCap = 'round';
+                    offCtx.lineJoin = 'round';
+                    
+                    imgData.shapes.forEach(shape => drawShape(offCtx, shape));
+
+                    const dataUrl = offCanvas.toDataURL('image/png');
+                    const base64Data = dataUrl.replace(/^data:image\/(png|jpg);base64,/, "");
+                    
+                    const fileName = imgData.name ? `edited_${imgData.name}` : `edited_photo_${index + 1}.png`;
+                    zip.file(fileName.endsWith('.png') ? fileName : `${fileName}.png`, base64Data, { base64: true });
+                });
+
+                const content = await zip.generateAsync({ type: "blob" });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(content);
+                link.download = "출장사진_편집본_모음.zip";
+                link.click();
+            } catch (error) {
+                console.error("ZIP Generation failed:", error);
+                alert("압축 파일 생성에 실패했습니다.");
+            } finally {
+                // Restore button
+                elements.btnDownloadZip.innerHTML = originalBtnText;
+                elements.btnDownloadZip.disabled = false;
+                updateUI(); // restores styling classes
+            }
+        }
+
+        // Run Init
+        initUI();
+        initDragAndDrop();
+
+    </script>
+</body>
+</html>
